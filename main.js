@@ -15,9 +15,8 @@ const fs = require("fs");
       })
     );
   };
-  const CookieString =
-    "";
-  const FolderURL = "";
+  const CookieString = "xxx=yyy";
+  const FolderURL = "http://xxx";
   const browser = await puppeteer.launch({ headless: false });
   const folderPage = await browser.newPage();
   await folderPage.setViewport({ width: 1920, height: 1080 });
