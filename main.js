@@ -2,6 +2,10 @@ const puppeteer = require("puppeteer");
 const fs = require("fs");
 
 (async () => {
+  const CookieString = "xxx=yyy";
+  const FolderURL = "you own folder page url";
+  const LoadTimeout = 6 * 1000;
+  const ImageMaxRetry = 5;
   const addCookies = async (cookies_str, page, domain) => {
     let cookies = cookies_str.split(";").map((pair) => {
       let name = pair.trim().slice(0, pair.trim().indexOf("="));
@@ -15,8 +19,6 @@ const fs = require("fs");
       })
     );
   };
-  const CookieString = "xxx=yyy";
-  const FolderURL = "http://xxx";
   const browser = await puppeteer.launch({ headless: false });
   const folderPage = await browser.newPage();
   await folderPage.setViewport({ width: 1920, height: 1080 });
@@ -65,15 +67,18 @@ const fs = require("fs");
   if (!fs.existsSync("data")) {
     fs.mkdirSync("data");
   }
+  if (!fs.existsSync("data/images")) {
+    fs.mkdirSync("data/images");
+  }
   const total = links.length;
   while (links && links.length > 0) {
     const index = total - links.length + 1;
     link = links.pop();
-    console.log("Fetching detail page:" + link.title);
+    console.log(`Fetching detail page:${index}/${total} - ${link.title}`);
     await detailPage.goto(link.url);
     const ContentSelector = "#sina_keyword_ad_area2";
     await detailPage.waitForSelector(ContentSelector);
-    const content = await detailPage.$eval(
+    let content = await detailPage.$eval(
       ContentSelector,
       (ele) => ele.innerHTML
     );
@@ -88,19 +93,88 @@ const fs = require("fs");
       tags = await detailPage.$$eval(TagSelector, (eles) =>
         eles.map((ele) => ele.innerHTML)
       );
+      console.log(tags);
     } catch {
       console.log("Can't find tags");
     }
-    console.log(tags);
     let blogClass = "";
     const ClassSelector =
       "#sina_keyword_ad_area > table > tbody > tr > td.blog_class > a";
     try {
       blogClass = await detailPage.$eval(ClassSelector, (ele) => ele.innerHTML);
+      console.log(blogClass);
     } catch {
       console.log("Can't find class");
     }
-    console.log(blogClass);
+    const ImageSelector = "#sina_keyword_ad_area2 img";
+    let findImage = false;
+    try {
+      await detailPage.waitForSelector(ImageSelector, { timeout: LoadTimeout });
+      findImage = true;
+    } catch {
+      console.log("Timeout, can't find the img element");
+    }
+    let images = [];
+    try {
+      images = await detailPage.$$eval(ImageSelector, (eles) =>
+        eles.map((ele, index) => {
+          return {
+            src: ele.getAttribute("src"),
+            real_src: ele.getAttribute("real_src"),
+            index: index,
+          };
+        })
+      );
+    } catch {
+      console.log("Can't find images");
+    }
+    const downloadImg = async (img) => {
+      const imgResp = await detailPage.waitForResponse(img.real_src, {
+        timeout: LoadTimeout,
+      });
+      const buffer = await imgResp.buffer();
+      const imgBase64 = buffer.toString("base64");
+      fs.writeFileSync(
+        `data/images/${index}_${img.index}.jpg`,
+        imgBase64,
+        "base64"
+      );
+    };
+    if (findImage) {
+      for (img of images) {
+        console.log("img.real_src:" + img.real_src);
+        try {
+          await downloadImg(img);
+        } catch {
+          //retry
+          console.log("retry download:" + img.real_src);
+          let retryCount = 0;
+          let succeed = false;
+          while (retryCount < ImageMaxRetry) {
+            try {
+              retryCount += 1;
+              detailPage.reload();
+              await downloadImg(img);
+              succeed = true;
+            } catch {
+              console.log(`retry download:${img.real_src} count:${retryCount}`);
+            }
+          }
+          if (!succeed) {
+            console.log(
+              `failed to load the image, maybe sina has lost it:${
+                img.real_src
+              } on page ${detailPage.url()}`
+            );
+            browser.close();
+            return;
+          }
+        }
+      }
+    }
+    for (img of images) {
+      content = content.replace(img.src, `images/${index}_${img.index}.jpg`);
+    }
     const jsonData = JSON.stringify({
       content: content,
       date: date,
@@ -109,7 +183,7 @@ const fs = require("fs");
       class: blogClass,
       tags: tags,
     });
-    fs.writeFile("data/" + index + ".json", jsonData, (err) => {
+    fs.writeFile(`data/${index}.json`, jsonData, (err) => {
       if (err) {
         console.error(err);
       }
@@ -121,7 +195,7 @@ const fs = require("fs");
     html += "<p id='class'>分类：" + blogClass + "</p>";
     html += "<p id='tags'>标签：" + tags.join(",") + "</p>";
     html += "<div id='content'>" + content + "</div>";
-    fs.writeFile("data/" + index + ".html", html, (err) => {
+    fs.writeFile(`data/${index}.html`, html, (err) => {
       if (err) {
         console.error(err);
       }
