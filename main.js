@@ -1,27 +1,29 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
-const CookieString = "";
-const addCookies = async (cookies_str, page, domain) => {
-  let cookies = cookies_str.split(";").map((pair) => {
-    let name = pair.trim().slice(0, pair.trim().indexOf("="));
-    let value = pair.trim().slice(pair.trim().indexOf("=") + 1);
-    return { name, value, domain };
-  });
-  await Promise.all(
-    cookies.map((pair) => {
-      console.log(pair);
-      return page.setCookie(pair);
-    })
-  );
-};
+
 (async () => {
-  const folder_url = "";
+  const addCookies = async (cookies_str, page, domain) => {
+    let cookies = cookies_str.split(";").map((pair) => {
+      let name = pair.trim().slice(0, pair.trim().indexOf("="));
+      let value = pair.trim().slice(pair.trim().indexOf("=") + 1);
+      return { name, value, domain };
+    });
+    await Promise.all(
+      cookies.map((pair) => {
+        console.log(pair);
+        return page.setCookie(pair);
+      })
+    );
+  };
+  const CookieString =
+    "";
+  const FolderURL = "";
   const browser = await puppeteer.launch({ headless: false });
   const folderPage = await browser.newPage();
   await folderPage.setViewport({ width: 1920, height: 1080 });
-  console.log("Fetching folder page:" + folder_url);
+  console.log("Fetching folder page:" + FolderURL);
   await addCookies(CookieString, folderPage, "blog.sina.com.cn");
-  await folderPage.goto(folder_url);
+  await folderPage.goto(FolderURL);
   //Fetch folders
   let links = [];
   let pageNext = "";
