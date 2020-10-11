@@ -6,6 +6,10 @@ const fs = require("fs");
   const FolderURL = "you own folder page url";
   const LoadTimeout = 15 * 1000;
   const ImageMaxRetry = 10;
+  function sleep(milliSeconds) {
+    var startTime = new Date().getTime();
+    while (new Date().getTime() < startTime + milliSeconds);
+  }
   const addCookies = async (cookies_str, page, domain) => {
     let cookies = cookies_str.split(";").map((pair) => {
       let name = pair.trim().slice(0, pair.trim().indexOf("="));
@@ -62,7 +66,8 @@ const fs = require("fs");
   await folderPage.close();
   //Fetch detail page
   const finishedLinks = [];
-  const detailPage = await browser.newPage();
+  let detailPage = await browser.newPage();
+  await detailPage.setViewport({ width: 1920, height: 1080 });
   await addCookies(CookieString, detailPage, "blog.sina.com.cn");
   if (!fs.existsSync("data")) {
     fs.mkdirSync("data");
@@ -70,11 +75,34 @@ const fs = require("fs");
   if (!fs.existsSync("data/images")) {
     fs.mkdirSync("data/images");
   }
+  const autoScroll = async (page) => {
+    return page.evaluate(() => {
+      return new Promise((resolve) => {
+        var totalHeight = 0;
+        var distance = 100;
+        var timer = setInterval(() => {
+          var scrollHeight = document.body.scrollHeight;
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+          if (totalHeight >= scrollHeight) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 100);
+      });
+    });
+  };
   const total = links.length;
   while (links && links.length > 0) {
     const index = total - links.length + 1;
     link = links.pop();
     console.log(`Fetching detail page:${index}/${total} - ${link.title}`);
+    if (fs.existsSync(`data/${index}.json`) && `data/${index}.html`) {
+      console.log(
+        `page already downloaded so skip waiting:${index}/${total} - ${link.title}`
+      );
+      continue;
+    }
     await detailPage.goto(link.url);
     const ContentSelector = "#sina_keyword_ad_area2";
     await detailPage.waitForSelector(ContentSelector);
@@ -129,6 +157,7 @@ const fs = require("fs");
       console.log("Can't find images");
     }
     const downloadImg = async (img) => {
+      await autoScroll(detailPage);
       const imgResp = await detailPage.waitForResponse(img.real_src, {
         timeout: LoadTimeout,
       });
@@ -142,7 +171,12 @@ const fs = require("fs");
     };
     if (findImage) {
       for (img of images) {
-        console.log("img.real_src:" + img.real_src);
+        const imgPath = `data/images/${index}_${img.index}.jpg`;
+        if (fs.existsSync(imgPath)) {
+          console.log("image already exists so skip waiting:" + imgPath);
+          continue;
+        }
+        console.log("downloading image:" + img.real_src);
         try {
           await downloadImg(img);
         } catch {
@@ -153,8 +187,13 @@ const fs = require("fs");
             try {
               console.log("retry download:" + img.real_src);
               retryCount += 1;
-              await detailPage.reload();
-              await detailPage.waitFor(3000);
+              const newPage = await browser.newPage();
+              await detailPage.close();
+              detailPage = newPage;
+              await detailPage.setViewport({ width: 1920, height: 1080 });
+              await detailPage.goto(link.url);
+              await addCookies(CookieString, detailPage, "blog.sina.com.cn");
+              sleep(3000);
               await downloadImg(img);
               succeed = true;
             } catch {
@@ -203,6 +242,8 @@ const fs = require("fs");
         console.error(err);
       }
     });
+    //Prevent too frequent
+    sleep(5000);
     finishedLinks.push(link);
   }
   browser.close();
