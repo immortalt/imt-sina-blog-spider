@@ -4,8 +4,8 @@ const fs = require("fs");
 (async () => {
   const CookieString = "xxx=yyy";
   const FolderURL = "you own folder page url";
-  const LoadTimeout = 6 * 1000;
-  const ImageMaxRetry = 5;
+  const LoadTimeout = 15 * 1000;
+  const ImageMaxRetry = 10;
   const addCookies = async (cookies_str, page, domain) => {
     let cookies = cookies_str.split(";").map((pair) => {
       let name = pair.trim().slice(0, pair.trim().indexOf("="));
@@ -147,17 +147,20 @@ const fs = require("fs");
           await downloadImg(img);
         } catch {
           //retry
-          console.log("retry download:" + img.real_src);
           let retryCount = 0;
           let succeed = false;
           while (retryCount < ImageMaxRetry) {
             try {
+              console.log("retry download:" + img.real_src);
               retryCount += 1;
-              detailPage.reload();
+              await detailPage.reload();
+              await detailPage.waitFor(3000);
               await downloadImg(img);
               succeed = true;
             } catch {
-              console.log(`retry download:${img.real_src} count:${retryCount}`);
+              console.log(
+                `retry download failed:${img.real_src} count:${retryCount}`
+              );
             }
           }
           if (!succeed) {
