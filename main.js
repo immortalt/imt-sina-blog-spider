@@ -1,9 +1,50 @@
 const puppeteer = require("puppeteer");
+const request = require("request");
 const fs = require("fs");
+const config = require("./config.js");
+
+var downloadPic = function (src, dest) {
+  request(src, {
+    headers: {
+      timeout: 5000,
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+      "Accept-Encoding": "gzip, deflate",
+      "Accept-Language": "zh-CN,zh;q=0.9",
+      "Cache-Control": "max-age=0",
+      Connection: "keep-alive",
+      Referer: "http://blog.sina.com.cn/",
+      "Upgrade-Insecure-Requests": "1",
+      "User-Agent":
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36",
+    },
+  })
+    .pipe(fs.createWriteStream(dest))
+    .on("close", function () {
+      console.log("pic saved:" + src);
+    });
+};
+
+const autoScroll = async (page) => {
+  return page.evaluate(() => {
+    return new Promise((resolve) => {
+      var totalHeight = 0;
+      var distance = 100;
+      var timer = setInterval(() => {
+        var scrollHeight = document.body.scrollHeight;
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+        if (totalHeight >= scrollHeight) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 100);
+    });
+  });
+};
 
 (async () => {
-  const CookieString = "xxx=yyy";
-  const FolderURL = "you own folder page url";
+  const { CookieString, FolderURL } = config;
   const LoadTimeout = 15 * 1000;
   const ImageMaxRetry = 10;
   function sleep(milliSeconds) {
@@ -18,7 +59,6 @@ const fs = require("fs");
     });
     await Promise.all(
       cookies.map((pair) => {
-        console.log(pair);
         return page.setCookie(pair);
       })
     );
@@ -75,23 +115,7 @@ const fs = require("fs");
   if (!fs.existsSync("data/images")) {
     fs.mkdirSync("data/images");
   }
-  const autoScroll = async (page) => {
-    return page.evaluate(() => {
-      return new Promise((resolve) => {
-        var totalHeight = 0;
-        var distance = 100;
-        var timer = setInterval(() => {
-          var scrollHeight = document.body.scrollHeight;
-          window.scrollBy(0, distance);
-          totalHeight += distance;
-          if (totalHeight >= scrollHeight) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, 100);
-      });
-    });
-  };
+
   const total = links.length;
   while (links && links.length > 0) {
     const index = total - links.length + 1;
@@ -156,20 +180,16 @@ const fs = require("fs");
     } catch {
       console.log("Can't find images");
     }
-    const downloadImg = async (img) => {
-      await autoScroll(detailPage);
-      const imgResp = await detailPage.waitForResponse(img.real_src, {
-        timeout: LoadTimeout,
-      });
-      const buffer = await imgResp.buffer();
-      const imgBase64 = buffer.toString("base64");
-      fs.writeFileSync(
-        `data/images/${index}_${img.index}.jpg`,
-        imgBase64,
-        "base64"
-      );
+    const saveImage = async (img) => {
+      autoScroll(detailPage);
+      originalURL = img.real_src.replace("bmiddle", "original");
+      console.log("download img:" + originalURL);
+      const imagePath = `data/images/${index}_${img.index}.jpg`;
+      downloadPic(originalURL, imagePath);
     };
     if (findImage) {
+      console.log("images:");
+      console.log(images);
       for (img of images) {
         const imgPath = `data/images/${index}_${img.index}.jpg`;
         if (fs.existsSync(imgPath)) {
@@ -178,7 +198,7 @@ const fs = require("fs");
         }
         console.log("downloading image:" + img.real_src);
         try {
-          await downloadImg(img);
+          await saveImage(img);
         } catch {
           //retry
           let retryCount = 0;
@@ -187,14 +207,8 @@ const fs = require("fs");
             try {
               console.log("retry download:" + img.real_src);
               retryCount += 1;
-              const newPage = await browser.newPage();
-              await detailPage.close();
-              detailPage = newPage;
-              await detailPage.setViewport({ width: 1920, height: 1080 });
-              await detailPage.goto(link.url);
-              await addCookies(CookieString, detailPage, "blog.sina.com.cn");
               sleep(3000);
-              await downloadImg(img);
+              await saveImage(img);
               succeed = true;
             } catch {
               console.log(
@@ -232,7 +246,10 @@ const fs = require("fs");
     });
     let html = "";
     html += "<h2 id='title'>" + link.title + "</h2>";
-    html += "<p id='url'>原地址：" + link.url + "</p>";
+    html +=
+      `<p id='url'>原地址：<a href='${link.url}' target='_savelank'>` +
+      link.url +
+      "</a></p>";
     html += "<p id='date'>发布时间：" + date + "</p>";
     html += "<p id='class'>分类：" + blogClass + "</p>";
     html += "<p id='tags'>标签：" + tags.join(",") + "</p>";
