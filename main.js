@@ -2,6 +2,7 @@ const puppeteer = require("puppeteer");
 const request = require("request");
 const fs = require("fs");
 const config = require("./config.js");
+const cheerio = require("cheerio");
 
 var downloadPic = function (src, dest) {
   request(src, {
@@ -118,7 +119,7 @@ const autoScroll = async (page) => {
 
   const total = links.length;
   while (links && links.length > 0) {
-    const index = total - links.length + 1;
+    const index = total - links.length;
     link = links.pop();
     console.log(`Fetching detail page:${index}/${total} - ${link.title}`);
     if (fs.existsSync(`data/${index}.json`) && `data/${index}.html`) {
@@ -169,11 +170,14 @@ const autoScroll = async (page) => {
     let images = [];
     try {
       images = await detailPage.$$eval(ImageSelector, (eles) =>
-        eles.map((ele, index) => {
+        eles.map((ele, i) => {
           return {
             src: ele.getAttribute("src"),
             real_src: ele.getAttribute("real_src"),
-            index: index,
+            index: i,
+            originalURL: ele
+              .getAttribute("real_src")
+              .replace("bmiddle", "orignal"),
           };
         })
       );
@@ -182,10 +186,9 @@ const autoScroll = async (page) => {
     }
     const saveImage = async (img) => {
       autoScroll(detailPage);
-      originalURL = img.real_src.replace("bmiddle", "original");
-      console.log("download img:" + originalURL);
+      console.log("download image success:" + img.originalURL);
       const imagePath = `data/images/${index}_${img.index}.jpg`;
-      downloadPic(originalURL, imagePath);
+      downloadPic(img.originalURL, imagePath);
     };
     if (findImage) {
       console.log("images:");
@@ -229,7 +232,18 @@ const autoScroll = async (page) => {
       }
     }
     for (img of images) {
-      content = content.replace(img.src, `images/${index}_${img.index}.jpg`);
+      console.log("replacing output image:" + img.originalURL);
+      const $ = cheerio.load(content);
+      if ($(`img`).eq(img.index) == null) {
+        continue;
+      }
+      console.log(
+        "img:" + img.index + " " + $(`img`).eq(img.index).attr("src")
+      );
+      newSRC = `images/${index}_${img.index}.jpg`;
+      $(`img`).eq(img.index).attr("src", newSRC);
+      console.log("replace success:" + newSRC);
+      content = $.html();
     }
     const jsonData = JSON.stringify({
       content: content,
@@ -247,9 +261,21 @@ const autoScroll = async (page) => {
     let html = "";
     html += "<h2 id='title'>" + link.title + "</h2>";
     html +=
-      `<p id='url'>原地址：<a href='${link.url}' target='_savelank'>` +
+      `<p id='url'>原地址：<a href='${link.url}' target='_blank'>` +
       link.url +
       "</a></p>";
+    html += `<p id='url'>
+    ${
+      index > 0
+        ? `<a href='${index - 1}.html'>上一篇</a>`
+        : "<span>上一篇</span>"
+    }
+    <span style="margin-right:20px"></span>
+    ${
+      index < total - 1
+        ? `<a href='${index + 1}.html'>下一篇</a>`
+        : "<span>下一篇</span>"
+    }</p>`;
     html += "<p id='date'>发布时间：" + date + "</p>";
     html += "<p id='class'>分类：" + blogClass + "</p>";
     html += "<p id='tags'>标签：" + tags.join(",") + "</p>";
