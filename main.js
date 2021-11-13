@@ -1,34 +1,35 @@
 const puppeteer = require("puppeteer");
-const request = require("request");
 const fs = require("fs");
 const config = require("./config.js");
 const cheerio = require("cheerio");
+const axios = require("axios");
 
 var downloadPic = function (src, dest) {
-  try {
-    request(src, {
-      headers: {
-        timeout: 5000,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-        "Accept-Encoding": "gzip, deflate",
-        "Accept-Language": "zh-CN,zh;q=0.9",
-        "Cache-Control": "max-age=0",
-        Connection: "keep-alive",
-        Referer: "http://blog.sina.com.cn/",
-        "Upgrade-Insecure-Requests": "1",
-        "User-Agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36",
-      },
+  const picHeaders = {
+    timeout: 5000,
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Cache-Control": "max-age=0",
+    Connection: "keep-alive",
+    Referer: "http://blog.sina.com.cn/",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent":
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36",
+  };
+  axios({
+    method: "get",
+    url: src,
+    responseType: "stream",
+    headers: picHeaders,
+  })
+    .then((response) => {
+      response.data.pipe(fs.createWriteStream(dest));
     })
-      .pipe(fs.createWriteStream(dest))
-      .on("close", function () {
-        console.log("pic saved:" + src);
-      });
-  } catch (e) {
-    console.error("下载图片错误:");
-    console.error(e);
-  }
+    .catch((err) => {
+      console.log("下载图片错误:", err);
+    });
 };
 
 const autoScroll = async (page) => {
