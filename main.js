@@ -47,6 +47,7 @@ const autoScroll = async (page) => {
 (async () => {
   const { CookieString, FolderURL } = config;
   const LoadTimeout = 15 * 1000;
+  const CommentsLoadTimeout = 5 * 1000;
   const ImageMaxRetry = 10;
   function sleep(milliSeconds) {
     var startTime = new Date().getTime();
@@ -135,6 +136,7 @@ const autoScroll = async (page) => {
       ContentSelector,
       (ele) => ele.innerHTML
     );
+    autoScroll(detailPage);
     const DateSelector = "#articlebody > div.articalTitle > .time";
     let date = await detailPage.$eval(DateSelector, (ele) => ele.innerHTML);
     date = date.replace("(", "").replace(")", "").replace(":", "-");
@@ -150,6 +152,40 @@ const autoScroll = async (page) => {
     } catch {
       console.log("Can't find tags");
     }
+
+    const CommentSelector = "#article_comment_list > li > div:nth-child(2)";
+    let findComments = false;
+    try {
+      await detailPage.waitForSelector(CommentSelector, {
+        timeout: CommentsLoadTimeout,
+      });
+      findComments = true;
+    } catch {
+      console.log("Timeout, can't find comments");
+    }
+    let comments = [];
+    if (findComments) {
+      try {
+        comments = await detailPage.$$eval(CommentSelector, (eles) =>
+          eles.map((ele) => ele.outerHTML)
+        );
+        comments = comments.map((html) => {
+          const $ = cheerio.load(html);
+          return {
+            title: $("p:nth-child(1)").text(),
+            content: $("div.SG_revert_Inner").text(),
+            date: $("p.myReFrom > em").text(),
+            html: html,
+          };
+        });
+        console.log("comments:");
+        console.log(comments);
+      } catch (e) {
+        console.error(e);
+        console.log("Can't eval comments");
+      }
+    }
+
     let blogClass = "";
     const ClassSelector =
       "#sina_keyword_ad_area > table > tbody > tr > td.blog_class > a";
@@ -185,14 +221,13 @@ const autoScroll = async (page) => {
       console.log("Can't find images");
     }
     const saveImage = async (img) => {
-      autoScroll(detailPage);
       console.log("download image success:" + img.originalURL);
       const imagePath = `data/images/${index}_${img.index}.jpg`;
       downloadPic(img.originalURL, imagePath);
     };
     if (findImage) {
-      console.log("images:");
-      console.log(images);
+      // console.log("images:");
+      // console.log(images);
       for (img of images) {
         const imgPath = `data/images/${index}_${img.index}.jpg`;
         if (fs.existsSync(imgPath)) {
@@ -252,6 +287,7 @@ const autoScroll = async (page) => {
       url: link.url,
       class: blogClass,
       tags: tags,
+      comments: comments,
     });
     fs.writeFile(`data/${index}.json`, jsonData, (err) => {
       if (err) {
@@ -259,11 +295,25 @@ const autoScroll = async (page) => {
       }
     });
     let html = "";
+    html += `<html>
+    <head>
+    <style type="text/css">
+    .blue_border {
+      border-left: 6px solid #2196F3;
+      background-color: #ddffff;
+      padding-left: 20px;
+    }
+    </style>
+    </head>
+    <body>`;
     html += "<h2 id='title'>" + link.title + "</h2>";
     html +=
-      `<p id='url'>原地址：<a href='${link.url}' target='_blank'>` +
+      `<p id='url' class='blue_border'>原地址：<a href='${link.url}' target='_blank'>` +
       link.url +
       "</a></p>";
+    html += "<p id='date' class='blue_border'>发布时间：" + date + "</p>";
+    html += "<p id='class' class='blue_border'>分类：" + blogClass + "</p>";
+    html += "<p id='tags' class='blue_border'>标签：" + tags.join(",") + "</p>";
     html += `<p id='url'>
     ${
       index > 0
@@ -276,10 +326,22 @@ const autoScroll = async (page) => {
         ? `<a href='${index + 1}.html'>下一篇</a>`
         : "<span>下一篇</span>"
     }</p>`;
-    html += "<p id='date'>发布时间：" + date + "</p>";
-    html += "<p id='class'>分类：" + blogClass + "</p>";
-    html += "<p id='tags'>标签：" + tags.join(",") + "</p>";
     html += "<div id='content'>" + content + "</div>";
+    if (comments.length > 0) {
+      html +=
+        "<p id='tags'>评论：" +
+        comments.map((comment) => {
+          return `<div class="SG_revert_Cont blue_border">
+        <p><span class="SG_revert_Tit">${comment.title}</span></p>
+        <div class="SG_revert_Inner SG_txtb">${comment.content}</div>
+        <p class="myReFrom">
+          <em class="SG_txtc">${comment.date}</em>
+        </p>
+      </div>`;
+        }) +
+        "</p>";
+    }
+    html += `</body></html>`;
     fs.writeFile(`data/${index}.html`, html, (err) => {
       if (err) {
         console.error(err);
