@@ -5,25 +5,30 @@ const config = require("./config.js");
 const cheerio = require("cheerio");
 
 var downloadPic = function (src, dest) {
-  request(src, {
-    headers: {
-      timeout: 5000,
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-      "Accept-Encoding": "gzip, deflate",
-      "Accept-Language": "zh-CN,zh;q=0.9",
-      "Cache-Control": "max-age=0",
-      Connection: "keep-alive",
-      Referer: "http://blog.sina.com.cn/",
-      "Upgrade-Insecure-Requests": "1",
-      "User-Agent":
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36",
-    },
-  })
-    .pipe(fs.createWriteStream(dest))
-    .on("close", function () {
-      console.log("pic saved:" + src);
-    });
+  try {
+    request(src, {
+      headers: {
+        timeout: 5000,
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Cache-Control": "max-age=0",
+        Connection: "keep-alive",
+        Referer: "http://blog.sina.com.cn/",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36",
+      },
+    })
+      .pipe(fs.createWriteStream(dest))
+      .on("close", function () {
+        console.log("pic saved:" + src);
+      });
+  } catch (e) {
+    console.error("下载图片错误:");
+    console.error(e);
+  }
 };
 
 const autoScroll = async (page) => {
@@ -65,7 +70,7 @@ const autoScroll = async (page) => {
       })
     );
   };
-  const browser = await puppeteer.launch({ headless: false });
+  const browser = await puppeteer.launch({ headless: true });
   const folderPage = await browser.newPage();
   await folderPage.setViewport({ width: 1920, height: 1080 });
   console.log("Fetching folder page:" + FolderURL);
@@ -117,7 +122,9 @@ const autoScroll = async (page) => {
   if (!fs.existsSync("data/images")) {
     fs.mkdirSync("data/images");
   }
-
+  if (!fs.existsSync("data/screenshots")) {
+    fs.mkdirSync("data/screenshots");
+  }
   const total = links.length;
   while (links && links.length > 0) {
     const index = total - links.length;
@@ -136,7 +143,7 @@ const autoScroll = async (page) => {
       ContentSelector,
       (ele) => ele.innerHTML
     );
-    autoScroll(detailPage);
+    // autoScroll(detailPage);
     const DateSelector = "#articlebody > div.articalTitle > .time";
     let date = await detailPage.$eval(DateSelector, (ele) => ele.innerHTML);
     date = date.replace("(", "").replace(")", "").replace(":", "-");
@@ -152,7 +159,7 @@ const autoScroll = async (page) => {
     } catch {
       console.log("Can't find tags");
     }
-
+    // save comments
     const CommentSelector = "#article_comment_list > li > div:nth-child(2)";
     let findComments = false;
     try {
@@ -169,13 +176,14 @@ const autoScroll = async (page) => {
         comments = await detailPage.$$eval(CommentSelector, (eles) =>
           eles.map((ele) => ele.outerHTML)
         );
-        comments = comments.map((html) => {
+        comments = comments.map((html, i) => {
           const $ = cheerio.load(html);
           return {
             title: $("p:nth-child(1)").text(),
             content: $("div.SG_revert_Inner").text(),
             date: $("p.myReFrom > em").text(),
             html: html,
+            index: i,
           };
         });
         console.log("comments:");
@@ -185,7 +193,7 @@ const autoScroll = async (page) => {
         console.log("Can't eval comments");
       }
     }
-
+    //save class
     let blogClass = "";
     const ClassSelector =
       "#sina_keyword_ad_area > table > tbody > tr > td.blog_class > a";
@@ -195,6 +203,7 @@ const autoScroll = async (page) => {
     } catch {
       console.log("Can't find class");
     }
+    //save images
     const ImageSelector = "#sina_keyword_ad_area2 img";
     let findImage = false;
     try {
@@ -226,8 +235,6 @@ const autoScroll = async (page) => {
       downloadPic(img.originalURL, imagePath);
     };
     if (findImage) {
-      // console.log("images:");
-      // console.log(images);
       for (img of images) {
         const imgPath = `data/images/${index}_${img.index}.jpg`;
         if (fs.existsSync(imgPath)) {
@@ -255,16 +262,26 @@ const autoScroll = async (page) => {
             }
           }
           if (!succeed) {
-            console.log(
+            console.error(
               `failed to load the image, maybe sina has lost it:${
                 img.real_src
               } on page ${detailPage.url()}`
             );
-            browser.close();
             return;
           }
         }
       }
+    }
+    //take screenshot
+    const screenshotPath = `data/screenshots/${index}.png`;
+    try {
+      await detailPage.screenshot({
+        path: screenshotPath,
+        fullPage: true,
+      });
+    } catch (e) {
+      console.error("take screenshot error:");
+      console.error(e);
     }
     for (img of images) {
       console.log("replacing output image:" + img.originalURL);
@@ -302,6 +319,13 @@ const autoScroll = async (page) => {
       border-left: 6px solid #2196F3;
       background-color: #ddffff;
       padding-left: 20px;
+    }
+    .screenshot{
+      width: 100%;
+      height: auto;
+    }
+    img{
+      max-width: 100%;
     }
     </style>
     </head>
@@ -341,6 +365,8 @@ const autoScroll = async (page) => {
         }) +
         "</p>";
     }
+    html += "<p class='blue_border'>截图：</p>";
+    html += `<img class="screenshot" src="${`screenshots/${index}.png`}" />`;
     html += `</body></html>`;
     fs.writeFile(`data/${index}.html`, html, (err) => {
       if (err) {
